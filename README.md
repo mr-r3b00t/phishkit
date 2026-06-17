@@ -4,17 +4,22 @@ Two self-contained, **offline** tools for safely inspecting emails and PDFs that
 phishing or malware. Everything is parsed and rendered **locally in your browser** —
 nothing is ever uploaded, and nothing in the email or PDF is allowed to execute.
 
-| Tool | File | Opens by |
+| Page | File | Opens by |
 |------|------|----------|
-| EML viewer | [`index.html`](index.html) | double-click |
+| Landing page | [`index.html`](index.html) | double-click |
+| EML viewer | [`eml.html`](eml.html) | double-click |
 | PDF viewer / extractor | [`pdf.html`](pdf.html) | double-click |
+
+`index.html` is a landing page that links to both tools — it's also what GitHub Pages serves
+at the site root.
 
 ---
 
 ## Quick start
 
-1. **Email:** double-click `index.html`, then drag an `.eml` file onto the window (or use **Open .eml…**).
-2. **PDF:** double-click `pdf.html`, then drag a `.pdf` onto the window (or use **Open .pdf…**).
+1. Open `index.html` for the landing page, or go straight to a tool:
+2. **Email:** open `eml.html`, then drag an `.eml` file onto the window (or use **Open .eml…**).
+3. **PDF:** open `pdf.html`, then drag a `.pdf` onto the window (or use **Open .pdf…**).
 
 No install, no server, no internet connection required. Works on Windows/macOS/Linux in any
 modern browser. The two pages link to each other in the top bar.
@@ -29,7 +34,7 @@ modern browser. The two pages link to each other in the top bar.
 
 ---
 
-## EML viewer (`index.html`)
+## EML viewer (`eml.html`)
 
 Parses MIME email (multipart, quoted-printable / base64, charset decoding, RFC 2047 headers)
 and shows:
@@ -86,7 +91,8 @@ double-click (the worker falls back to the main thread when a real Worker can't 
 ## Files
 
 ```
-index.html        Safe EML viewer (standalone)
+index.html        Landing page (links to both tools; GitHub Pages root)
+eml.html          Safe EML viewer (standalone)
 pdf.html          Safe PDF viewer / extractor (standalone)
 lib/
   pdf.js          Vendored Mozilla pdf.js 3.11.174 (UMD)

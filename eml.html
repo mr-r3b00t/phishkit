@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- The viewer page itself is locked down. No remote anything, no inline event handlers needed beyond our own script. -->
+<title>Safe EML Viewer</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --border:#2a2f3a;
+    --text:#e6e9ef; --muted:#9aa3b2; --accent:#4e7df7; --good:#39c46b;
+    --warn:#f0a92c; --bad:#ef5b5b; --chip:#252a35;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--text);
+    font:14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    display:flex; flex-direction:column;
+  }
+  header{
+    padding:12px 18px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+    background:var(--panel);
+  }
+  header h1{font-size:16px; margin:0; font-weight:600}
+  header .sub{color:var(--muted); font-size:12px}
+  .grow{flex:1}
+  button, label.btn{
+    background:var(--panel2); color:var(--text); border:1px solid var(--border);
+    padding:7px 12px; border-radius:8px; cursor:pointer; font-size:13px;
+  }
+  button:hover, label.btn:hover{border-color:var(--accent)}
+  button:disabled{opacity:.5; cursor:not-allowed}
+  button.primary{background:var(--accent); border-color:var(--accent); color:#fff}
+  input[type=file]{display:none}
+
+  #drop{
+    flex:1; margin:24px; border:2px dashed var(--border); border-radius:14px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    color:var(--muted); text-align:center; gap:10px; padding:40px;
+  }
+  #drop.drag{border-color:var(--accent); background:var(--panel)}
+  #drop strong{color:var(--text); font-size:18px}
+
+  main{flex:1; display:none; overflow:hidden}
+  main.show{display:flex}
+  .left{
+    width:340px; min-width:300px; border-right:1px solid var(--border);
+    overflow:auto; padding:14px; background:var(--panel);
+  }
+  .right{flex:1; display:flex; flex-direction:column; overflow:hidden}
+  .toolbar{
+    padding:8px 14px; border-bottom:1px solid var(--border);
+    display:flex; gap:8px; align-items:center; flex-wrap:wrap; background:var(--panel2);
+  }
+  .tabs{display:flex; gap:4px}
+  .tab{padding:6px 12px; border-radius:8px 8px 0 0; cursor:pointer; color:var(--muted)}
+  .tab.active{background:var(--bg); color:var(--text); border:1px solid var(--border); border-bottom:none}
+  .view{flex:1; overflow:auto; display:none}
+  .view.active{display:block}
+  iframe{width:100%; height:100%; border:0; background:#fff}
+
+  .section{margin-bottom:18px}
+  .section h2{
+    font-size:11px; text-transform:uppercase; letter-spacing:.08em;
+    color:var(--muted); margin:0 0 8px; font-weight:600;
+  }
+  .kv{display:grid; grid-template-columns:74px 1fr; gap:4px 8px; font-size:12.5px}
+  .kv .k{color:var(--muted)}
+  .kv .v{word-break:break-word}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+
+  .verdict{border-radius:10px; padding:12px; margin-bottom:14px; border:1px solid var(--border)}
+  .verdict.bad{background:rgba(239,91,91,.12); border-color:var(--bad)}
+  .verdict.warn{background:rgba(240,169,44,.12); border-color:var(--warn)}
+  .verdict.good{background:rgba(57,196,107,.12); border-color:var(--good)}
+  .verdict .title{font-weight:700; font-size:14px; display:flex; align-items:center; gap:8px}
+  .verdict .score{margin-left:auto; font-size:12px; color:var(--muted)}
+
+  .flag{display:flex; gap:9px; padding:8px 0; border-top:1px solid var(--border); font-size:12.5px}
+  .flag:first-of-type{border-top:none}
+  .flag .ico{flex:none; width:18px; text-align:center}
+  .flag .body{flex:1}
+  .flag .body .what{font-weight:600}
+  .flag .body .why{color:var(--muted); margin-top:2px}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;vertical-align:middle}
+  .dot.good{background:var(--good)} .dot.warn{background:var(--warn)} .dot.bad{background:var(--bad)} .dot.muted{background:var(--muted)}
+
+  .pill{display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; background:var(--chip); border:1px solid var(--border)}
+  .pill.good{color:var(--good); border-color:var(--good)}
+  .pill.bad{color:var(--bad); border-color:var(--bad)}
+  .pill.warn{color:var(--warn); border-color:var(--warn)}
+
+  .linkrow{padding:9px 0; border-top:1px solid var(--border)}
+  .linkrow:first-child{border-top:none}
+  .linkrow .disp{color:var(--muted); font-size:11px; margin-bottom:2px}
+  .linkrow .url{font-size:12px; word-break:break-all}
+  .linkrow .url a{color:var(--text)} /* unused but safe */
+  .linkrow .meta{margin-top:4px; display:flex; gap:6px; align-items:center; flex-wrap:wrap}
+  .copybtn{font-size:11px; padding:3px 8px}
+
+  .att{display:flex; align-items:center; gap:10px; padding:9px 0; border-top:1px solid var(--border)}
+  .att:first-child{border-top:none}
+  .att .name{flex:1; word-break:break-all}
+  .att .size{color:var(--muted); font-size:12px}
+
+  pre.raw{white-space:pre-wrap; word-break:break-word; padding:14px; margin:0; font-size:12px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .empty{padding:30px; color:var(--muted); text-align:center}
+  .banner{background:var(--panel2); border:1px solid var(--warn); color:var(--text); padding:8px 12px; border-radius:8px; font-size:12.5px; display:flex; gap:10px; align-items:center}
+  .banner button{padding:4px 10px; font-size:12px}
+  code{background:var(--chip); padding:1px 5px; border-radius:5px; font-size:12px}
+  a.exturl{color:var(--accent)}
+</style>
+</head>
+<body>
+<header>
+  <h1>🛡️ Safe EML Viewer</h1>
+  <span class="sub">Renders email locally · no scripts · remote content blocked · links defanged</span>
+  <a class="exturl" style="text-decoration:none;font-size:12px" href="index.html">↩ Home</a>
+  <a class="exturl" style="text-decoration:none;font-size:12px" href="pdf.html">PDF viewer →</a>
+  <span class="grow"></span>
+  <label class="btn">Open .eml… <input id="file" type="file" accept=".eml,message/rfc822,text/plain"></label>
+  <button id="closeBtn" style="display:none">Close</button>
+</header>
+
+<div id="drop">
+  <strong>Drop an .eml file here</strong>
+  <div>or use “Open .eml…”. Everything is parsed in your browser — nothing is uploaded.</div>
+</div>
+
+<main id="main">
+  <aside class="left" id="left"></aside>
+  <section class="right">
+    <div class="toolbar">
+      <div class="tabs">
+        <div class="tab active" data-view="html">Message</div>
+        <div class="tab" data-view="text">Plain text</div>
+        <div class="tab" data-view="links">Links</div>
+        <div class="tab" data-view="raw">Raw source</div>
+      </div>
+      <span class="grow"></span>
+      <div id="imgControl"></div>
+    </div>
+    <div class="view active" id="view-html"></div>
+    <div class="view" id="view-text"><pre class="raw" id="textBody"></pre></div>
+    <div class="view" id="view-links" style="padding:14px"></div>
+    <div class="view" id="view-raw"><pre class="raw" id="rawBody"></pre></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+
+/* ===========================================================================
+   Safe EML Viewer — all processing is client-side and offline.
+   Security model:
+   - HTML body is rendered inside an <iframe sandbox> WITHOUT allow-scripts,
+     so no JS in the email can ever run.
+   - A strict CSP <meta> inside the iframe blocks ALL remote resources by
+     default (images, fonts, css, frames). The user can opt-in to load images.
+   - HTML is additionally sanitized (scripts, event handlers, javascript: URLs,
+     <object>/<embed>/<iframe>/<form>/<meta>/<base> removed) as defense in depth.
+   - All <a> are stripped of href and made non-clickable; real destinations are
+     listed in the Links tab with Proofpoint/urldefense + Outlook SafeLink
+     unwrapping so the user can judge them without risk.
+   =========================================================================== */
+
+const $ = s => document.querySelector(s);
+
+/* ---------- helpers: decoding ---------- */
+
+function decodeQuotedPrintable(input){
+  // Soft line breaks (=\r?\n) then =XX hex bytes -> raw bytes
+  const text = input.replace(/=\r?\n/g, "");
+  const bytes = [];
+  for (let i=0; i<text.length; i++){
+    const c = text[i];
+    if (c === "="){
+      const hex = text.substr(i+1,2);
+      if (/^[0-9A-Fa-f]{2}$/.test(hex)){ bytes.push(parseInt(hex,16)); i+=2; continue; }
+      bytes.push(c.charCodeAt(0)); continue;
+    }
+    bytes.push(c.charCodeAt(0) & 0xff);
+  }
+  return new Uint8Array(bytes);
+}
+
+function decodeBase64(input){
+  const clean = input.replace(/[^A-Za-z0-9+/=]/g, "");
+  let bin;
+  try { bin = atob(clean); } catch(e){ return new Uint8Array(); }
+  const bytes = new Uint8Array(bin.length);
+  for (let i=0; i<bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+function bytesToString(bytes, charset){
+  charset = (charset || "utf-8").toLowerCase().replace(/['"]/g,"").trim();
+  // map a few common aliases TextDecoder may not know
+  const alias = {"us-ascii":"ascii","ascii":"windows-1252","cp1252":"windows-1252","latin1":"iso-8859-1"};
+  charset = alias[charset] || charset;
+  try { return new TextDecoder(charset).decode(bytes); }
+  catch(e){ try { return new TextDecoder("utf-8").decode(bytes); } catch(_){ return ""; } }
+}
+
+// RFC 2047 encoded-word decoding for header values: =?charset?B|Q?text?=
+function decodeRFC2047(str){
+  if (!str || str.indexOf("=?") === -1) return str;
+  // Join adjacent encoded words separated only by whitespace (per spec)
+  str = str.replace(/(=\?[^?]+\?[bBqQ]\?[^?]*\?=)\s+(?==\?)/g, "$1");
+  return str.replace(/=\?([^?]+)\?([bBqQ])\?([^?]*)\?=/g, (m, cs, enc, txt) => {
+    try {
+      let bytes;
+      if (enc.toUpperCase() === "B") bytes = decodeBase64(txt);
+      else { // Q encoding: _ = space, =XX = byte
+        bytes = decodeQuotedPrintable(txt.replace(/_/g, " "));
+      }
+      return bytesToString(bytes, cs);
+    } catch(e){ return m; }
+  });
+}
+
+/* ---------- MIME parsing ---------- */
+
+function splitHeadersAndBody(raw){
+  const idx = raw.search(/\r?\n\r?\n/);
+  if (idx === -1) return { headerText: raw, body: "" };
+  const sep = raw.match(/\r?\n\r?\n/);
+  return { headerText: raw.slice(0, idx), body: raw.slice(idx + sep[0].length) };
+}
+
+function parseHeaders(headerText){
+  // Unfold continuation lines, then split into name/value, preserving order & duplicates
+  const lines = headerText.split(/\r?\n/);
+  const unfolded = [];
+  for (const line of lines){
+    if (/^[ \t]/.test(line) && unfolded.length){
+      unfolded[unfolded.length-1] += " " + line.replace(/^[ \t]+/, "");
+    } else {
+      unfolded.push(line);
+    }
+  }
+  const headers = [];
+  for (const line of unfolded){
+    const m = line.match(/^([^:]+):\s?([\s\S]*)$/);
+    if (m) headers.push({ name: m[1].trim(), key: m[1].trim().toLowerCase(), value: m[2] });
+  }
+  return headers;
+}
+
+function getHeader(headers, name){
+  name = name.toLowerCase();
+  const h = headers.find(h => h.key === name);
+  return h ? h.value : "";
+}
+function getAllHeaders(headers, name){
+  name = name.toLowerCase();
+  return headers.filter(h => h.key === name).map(h => h.value);
+}
+
+function parseContentType(value){
+  if (!value) return { type:"text/plain", params:{} };
+  const parts = value.split(";");
+  const type = parts.shift().trim().toLowerCase();
+  const params = {};
+  for (const p of parts){
+    const eq = p.indexOf("=");
+    if (eq === -1) continue;
+    const k = p.slice(0,eq).trim().toLowerCase();
+    let v = p.slice(eq+1).trim().replace(/^"|"$/g,"");
+    params[k] = v;
+  }
+  return { type, params };
+}
+
+// Recursively parse a MIME entity (raw text incl. its own headers) into a node tree.
+function parseEntity(raw){
+  const { headerText, body } = splitHeadersAndBody(raw);
+  const headers = parseHeaders(headerText);
+  const ct = parseContentType(getHeader(headers, "content-type"));
+  const node = { headers, contentType: ct, children: [], body: null, rawBody: body };
+
+  if (ct.type.startsWith("multipart/") && ct.params.boundary){
+    const b = ct.params.boundary;
+    const segments = splitMultipart(body, b);
+    node.children = segments.map(seg => parseEntity(seg));
+  }
+  return node;
+}
+
+function splitMultipart(body, boundary){
+  const delim = "--" + boundary;
+  const lines = body.split(/\r?\n/);
+  const parts = [];
+  let current = null;
+  for (const line of lines){
+    if (line === delim || line === delim + "--"){
+      if (current !== null) parts.push(current.join("\n"));
+      current = (line === delim + "--") ? null : [];
+      continue;
+    }
+    if (current !== null) current.push(line);
+  }
+  return parts;
+}
+
+function decodeEntityBody(node){
+  const enc = (getHeader(node.headers,"content-transfer-encoding")||"7bit").toLowerCase().trim();
+  let bytes;
+  if (enc === "base64") bytes = decodeBase64(node.rawBody);
+  else if (enc === "quoted-printable") bytes = decodeQuotedPrintable(node.rawBody);
+  else { // 7bit/8bit/binary
+    const b = []; for (let i=0;i<node.rawBody.length;i++) b.push(node.rawBody.charCodeAt(i)&0xff);
+    bytes = new Uint8Array(b);
+  }
+  return bytes;
+}
+
+// Walk tree collecting the displayable text/html, text/plain and attachments.
+function collectParts(node, acc){
+  acc = acc || { html:null, text:null, attachments:[] };
+  const ct = node.contentType;
+  if (node.children.length){
+    // For multipart/alternative prefer the richest; but just collect all and pick later.
+    for (const c of node.children) collectParts(c, acc);
+    return acc;
+  }
+  const disp = parseContentType(getHeader(node.headers,"content-disposition"));
+  const filename = disp.params.filename || ct.params.name || null;
+  const isAttachment = disp.type === "attachment" || (filename && !ct.type.startsWith("text/"));
+
+  if (!isAttachment && ct.type === "text/html" && acc.html === null){
+    acc.html = bytesToString(decodeEntityBody(node), ct.params.charset);
+  } else if (!isAttachment && ct.type === "text/plain" && acc.text === null){
+    acc.text = bytesToString(decodeEntityBody(node), ct.params.charset);
+  } else if (isAttachment || filename || (!ct.type.startsWith("text/") && !ct.type.startsWith("multipart/"))){
+    const bytes = decodeEntityBody(node);
+    acc.attachments.push({
+      filename: filename ? decodeRFC2047(filename) : "(unnamed)",
+      type: ct.type, size: bytes.length, bytes,
+      inline: disp.type === "inline"
+    });
+  }
+  return acc;
+}
+
+/* ---------- URL unwrapping (Proofpoint urldefense + Outlook SafeLinks) ---------- */
+
+function unwrapUrl(url){
+  let changed = true, guard = 0, original = url;
+  while (changed && guard++ < 5){
+    changed = false;
+    // Outlook SafeLinks: https://*.safelinks.protection.outlook.com/?url=ENC&...
+    let m = url.match(/^https?:\/\/[^/]*safelinks\.protection\.outlook\.com\/.*?[?&]url=([^&]+)/i);
+    if (m){ try { url = decodeURIComponent(m[1]); changed = true; continue; } catch(e){} }
+
+    // Proofpoint urldefense v3: https://urldefense.com/v3/__REAL__;base64!...$
+    m = url.match(/^https?:\/\/urldefense\.com\/v3\/__(.*?)__;/i);
+    if (m){
+      let real = m[1];
+      // v3 replaces some chars; the trailing ;<b64>! encodes substitutions. Best-effort: undo common encodings.
+      real = real.replace(/\*([0-9A-Fa-f]{2})/g, (x,h)=>{ try{return decodeURIComponent("%"+h);}catch(e){return x;} });
+      url = real; changed = true; continue;
+    }
+    // Proofpoint urldefense v2: https://urldefense.proofpoint.com/v2/url?u=ENC&...
+    m = url.match(/^https?:\/\/urldefense\.proofpoint\.com\/v2\/url\?u=([^&]+)/i);
+    if (m){
+      let real = m[1].replace(/-/g,"%").replace(/_/g,"/");
+      try { url = decodeURIComponent(real); changed = true; continue; } catch(e){}
+    }
+  }
+  return { original, unwrapped: url, wasWrapped: url !== original };
+}
+
+function hostOf(url){
+  try { return new URL(url).hostname.toLowerCase(); } catch(e){ return ""; }
+}
+function regDomain(host){
+  // crude eTLD+1 (good enough for display/compare; not a full PSL)
+  const p = host.split("."); if (p.length<=2) return host;
+  return p.slice(-2).join(".");
+}
+
+/* ---------- HTML sanitization (defense in depth; iframe is the real guard) ---------- */
+
+const ALLOWED_TAGS = new Set(["a","abbr","address","area","article","aside","b","bdi","bdo","blockquote","br","caption","center","cite","code","col","colgroup","dd","del","details","dfn","div","dl","dt","em","figcaption","figure","footer","h1","h2","h3","h4","h5","h6","header","hgroup","hr","i","img","ins","kbd","label","li","main","map","mark","nav","ol","p","pre","q","rp","rt","ruby","s","samp","section","small","span","strong","sub","summary","sup","table","tbody","td","tfoot","th","thead","tr","u","ul","wbr","font","tt","big","strike"]);
+const ALLOWED_ATTRS = new Set(["alt","title","width","height","align","valign","border","cellpadding","cellspacing","colspan","rowspan","style","dir","lang","bgcolor","color","face","size","start","type"]);
+
+let blockedRemoteCount = 0;
+
+function sanitizeHtml(html, loadImages){
+  blockedRemoteCount = 0;
+  const doc = new DOMParser().parseFromString(html, "text/html");
+
+  // remove obviously dangerous elements outright
+  doc.querySelectorAll("script,object,embed,iframe,frame,frameset,base,meta,link,form,input,button,textarea,select,noscript,applet,template,svg,math").forEach(n=>n.remove());
+
+  const walk = doc.body ? doc.body.querySelectorAll("*") : [];
+  walk.forEach(el => {
+    const tag = el.tagName.toLowerCase();
+    if (!ALLOWED_TAGS.has(tag)){
+      // unwrap unknown tags (keep their text/children) instead of nuking content
+      el.replaceWith(...el.childNodes);
+      return;
+    }
+    // strip all attributes except an allowlist; never keep event handlers / src on most
+    [...el.attributes].forEach(attr => {
+      const name = attr.name.toLowerCase();
+      const val = attr.value;
+      if (name.startsWith("on")) { el.removeAttribute(attr.name); return; }
+      if (tag === "a" && name === "href"){
+        // Never keep clickable hrefs. Record destination, then strip.
+        el.removeAttribute("href");
+        el.removeAttribute("target");
+        return;
+      }
+      if (tag === "img" && name === "src"){
+        if (loadImages && /^https:\/\//i.test(val.trim())){
+          el.setAttribute("src", val);
+        } else {
+          if (/^https?:\/\//i.test(val.trim()) || val.trim().startsWith("//")) blockedRemoteCount++;
+          el.removeAttribute("src");
+          el.setAttribute("data-blocked-src", val);
+          el.setAttribute("alt", (el.getAttribute("alt")||"") + " [remote image blocked]");
+        }
+        return;
+      }
+      if (name === "background"){ el.removeAttribute("background"); blockedRemoteCount++; return; }
+      if (!ALLOWED_ATTRS.has(name)){ el.removeAttribute(attr.name); return; }
+      // neutralize url() in style to stop remote loads when images are blocked
+      if (name === "style" && !loadImages && /url\s*\(/i.test(val)){
+        el.setAttribute("style", val.replace(/url\s*\([^)]*\)/gi, "none"));
+        if (/https?:|\/\//i.test(val)) blockedRemoteCount++;
+      }
+    });
+    // mark former-links visually
+    if (tag === "a"){ el.setAttribute("style", (el.getAttribute("style")||"") + ";color:#0a58ca;text-decoration:underline;cursor:default"); }
+  });
+
+  return doc.body ? doc.body.innerHTML : "";
+}
+
+// collect every link + display text from the ORIGINAL html (pre-sanitize) and text body
+function extractLinks(html, text){
+  const out = [];
+  const seen = new Set();
+  const add = (url, disp) => {
+    url = (url||"").trim();
+    if (!/^https?:\/\//i.test(url) && !/^mailto:/i.test(url)) return;
+    const u = unwrapUrl(url);
+    const key = u.unwrapped + "|" + (disp||"");
+    if (seen.has(key)) return; seen.add(key);
+    out.push({ display: disp||"", ...u });
+  };
+  if (html){
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    doc.querySelectorAll("a[href]").forEach(a => add(a.getAttribute("href"), (a.textContent||"").trim().slice(0,120)));
+    doc.querySelectorAll("img[src]").forEach(img => add(img.getAttribute("src"), "[image] "+(img.getAttribute("alt")||"")));
+  }
+  if (text){
+    (text.match(/https?:\/\/[^\s<>")\]]+/gi) || []).forEach(u => add(u, ""));
+  }
+  return out;
+}
+
+/* ---------- Security analysis ---------- */
+
+function escapeHtml(s){ return (s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+
+function parseAddress(value){
+  value = decodeRFC2047(value||"");
+  const m = value.match(/^\s*(.*?)\s*<([^>]+)>\s*$/);
+  if (m) return { name: m[1].replace(/^"|"$/g,"").trim(), addr: m[2].trim().toLowerCase() };
+  return { name: "", addr: value.trim().toLowerCase() };
+}
+
+function analyzeSecurity(headers, links){
+  const flags = [];
+  const push = (level, what, why) => flags.push({ level, what, why });
+
+  const from = parseAddress(getHeader(headers,"from"));
+  const replyTo = parseAddress(getHeader(headers,"reply-to"));
+  const returnPath = (getHeader(headers,"return-path")||"").replace(/[<>]/g,"").trim().toLowerCase();
+  const fromDomain = from.addr.split("@")[1] || "";
+
+  // Authentication-Results (SPF / DKIM / DMARC)
+  const authRaw = getAllHeaders(headers,"authentication-results").join(" ; ") + " " +
+                  getAllHeaders(headers,"authentication-results-original").join(" ; ") + " " +
+                  getHeader(headers,"received-spf");
+  const auth = authRaw.toLowerCase();
+
+  function res(re){ const m = auth.match(re); return m ? m[1].toLowerCase() : null; }
+  const spf   = res(/spf=(\w+)/);
+  const dkim  = res(/dkim=(\w+)/);
+  const dmarc = res(/dmarc=(\w+)/);
+
+  const good = ["pass"], bad = ["fail","softfail","hardfail","reject","permerror","temperror","none","neutral"];
+  const judge = (name, v, weightBad) => {
+    if (v === null){ push("warn", name+": not present", "No "+name+" result was found in the headers; authenticity can't be confirmed."); return; }
+    if (good.includes(v)) push("good", name+" = "+v, "The message passed "+name+" verification.");
+    else push(weightBad ? "bad":"warn", name+" = "+v, name+" did not pass. This is a strong sign of spoofing or forwarding problems.");
+  };
+  judge("SPF", spf, true);
+  judge("DKIM", dkim, true);
+  judge("DMARC", dmarc, true);
+
+  if (/action=oreject|action=reject/.test(auth))
+    push("bad","DMARC policy = reject","The sender's own domain told receivers to reject messages that fail authentication — this one failed.");
+
+  // From vs Reply-To mismatch
+  if (replyTo.addr && from.addr && replyTo.addr !== from.addr){
+    const rd = replyTo.addr.split("@")[1] || "";
+    if (rd && fromDomain && regDomain(rd) !== regDomain(fromDomain))
+      push("bad","Reply-To differs from From","Replies go to "+escapeHtml(replyTo.addr)+" (domain "+escapeHtml(rd)+"), not the apparent sender "+escapeHtml(from.addr)+". Classic redirect-the-reply trick.");
+    else
+      push("warn","Reply-To set","Replies are directed to "+escapeHtml(replyTo.addr)+".");
+  }
+
+  // Return-Path vs From
+  const rpDomain = (returnPath.split("@")[1]||"");
+  if (rpDomain && fromDomain && regDomain(rpDomain) !== regDomain(fromDomain))
+    push("warn","Envelope sender differs from From","Bounce/envelope domain ("+escapeHtml(rpDomain)+") doesn't match the From domain ("+escapeHtml(fromDomain)+"). Common with mass-mailers, but also with spoofing.");
+
+  // Display-name spoofing: name contains an email/brand that differs from real domain
+  const nameEmail = (from.name.match(/[\w.+-]+@[\w.-]+/)||[])[0];
+  if (nameEmail && nameEmail.toLowerCase() !== from.addr)
+    push("warn","Display name shows a different address","The name shows “"+escapeHtml(nameEmail)+"” but the real address is "+escapeHtml(from.addr)+".");
+
+  // Link domain analysis vs From / vs displayed text
+  let extLinkDomains = new Set();
+  let wrappedCount = 0, displayMismatch = 0;
+  links.forEach(l => {
+    if (l.unwrapped.startsWith("mailto:")) return;
+    const h = hostOf(l.unwrapped);
+    if (h) extLinkDomains.add(regDomain(h));
+    if (l.wasWrapped) wrappedCount++;
+    // does visible text look like a URL pointing elsewhere?
+    const dispUrl = (l.display.match(/https?:\/\/[^\s]+/)||[])[0];
+    if (dispUrl){
+      const dh = regDomain(hostOf(dispUrl));
+      if (dh && h && dh !== regDomain(h)) displayMismatch++;
+    }
+  });
+  if (displayMismatch>0)
+    push("bad","Link text hides a different destination","“"+displayMismatch+"” link(s) display one address but actually point somewhere else.");
+  if (fromDomain && extLinkDomains.size){
+    const offBrand = [...extLinkDomains].filter(d => d && regDomain(d) !== regDomain(fromDomain));
+    if (offBrand.length)
+      push("warn","Links point off the sender's domain","Links resolve to: "+offBrand.map(escapeHtml).join(", ")+". Check these match where you'd expect to land.");
+  }
+  if (wrappedCount>0)
+    push("good","Some links are security-rewritten","A mail gateway wrapped "+wrappedCount+" link(s) (Proofpoint/SafeLinks). The Links tab shows the real destinations.");
+
+  // Attachments with dangerous extensions handled in render.
+
+  // overall verdict
+  let level = "good", title = "No major red flags detected";
+  const hasBad = flags.some(f=>f.level==="bad");
+  const hasWarn = flags.some(f=>f.level==="warn");
+  if (hasBad){ level="bad"; title="Likely phishing / spoofed — do not trust"; }
+  else if (hasWarn){ level="warn"; title="Treat with caution"; }
+
+  return { level, title, flags, from, replyTo, spf, dkim, dmarc };
+}
+
+/* ---------- rendering ---------- */
+
+const DANGEROUS_EXT = /\.(exe|scr|com|pif|bat|cmd|js|jse|vbs|vbe|wsf|wsh|hta|msi|msp|cpl|jar|ps1|psm1|reg|lnk|chm|iso|img|vhd|docm|dotm|xlsm|xltm|pptm|ppam|html?|svg|zip|rar|7z|gz|ace|cab)$/i;
+
+let STATE = { html:null, text:null, attachments:[], headers:[], links:[], loadImages:false };
+
+function renderHtmlBody(){
+  const view = $("#view-html");
+  view.innerHTML = "";
+  if (STATE.html === null && STATE.text !== null){
+    // no HTML part — show plain text rendered safely
+    const iframe = buildIframe("<pre style='white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,monospace;padding:16px;margin:0'>"+escapeHtml(STATE.text)+"</pre>", false);
+    view.appendChild(iframe);
+    renderImgControl(0);
+    return;
+  }
+  if (STATE.html === null){ view.innerHTML = "<div class='empty'>No displayable message body.</div>"; renderImgControl(0); return; }
+  const safe = sanitizeHtml(STATE.html, STATE.loadImages);
+  const blocked = blockedRemoteCount;
+  const iframe = buildIframe(safe, STATE.loadImages);
+  view.appendChild(iframe);
+  renderImgControl(blocked);
+}
+
+function buildIframe(bodyHtml, loadImages){
+  const iframe = document.createElement("iframe");
+  // The crucial control: sandbox WITHOUT allow-scripts => no JS from the email runs.
+  // No allow-same-origin, no allow-forms, no allow-popups, no allow-top-navigation.
+  iframe.setAttribute("sandbox", "");
+  iframe.setAttribute("referrerpolicy", "no-referrer");
+  // CSP inside the document: block everything remote; allow images only when opted in.
+  const imgSrc = loadImages ? "https: data:" : "data:";
+  const csp = "default-src 'none'; img-src "+imgSrc+"; style-src 'unsafe-inline'; font-src data:; "+
+              "script-src 'none'; object-src 'none'; frame-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'";
+  const docHtml =
+    "<!DOCTYPE html><html><head><meta charset='utf-8'>"+
+    "<meta http-equiv='Content-Security-Policy' content=\""+csp+"\">"+
+    "<base target='_blank'>"+
+    "<style>html,body{margin:0;background:#fff;color:#111;font-family:Helvetica,Arial,sans-serif} a{pointer-events:none}</style>"+
+    "</head><body>"+bodyHtml+"</body></html>";
+  iframe.srcdoc = docHtml;
+  return iframe;
+}
+
+function renderImgControl(blocked){
+  const c = $("#imgControl");
+  c.innerHTML = "";
+  const total = blocked;
+  if (STATE.loadImages){
+    const b = document.createElement("button");
+    b.textContent = "🚫 Re-block remote images";
+    b.onclick = () => { STATE.loadImages=false; renderHtmlBody(); };
+    c.appendChild(b);
+  } else {
+    const span = document.createElement("span");
+    span.style.cssText="color:var(--muted);font-size:12px;margin-right:8px";
+    span.textContent = total>0 ? (total+" remote image(s) blocked") : "Remote content blocked";
+    c.appendChild(span);
+    const b = document.createElement("button");
+    b.className="primary";
+    b.textContent = "Load remote images";
+    b.title = "Loading remote images can confirm to the sender that you opened the email.";
+    b.onclick = () => {
+      if (confirm("Loading remote images can tell the sender (possibly an attacker) that you opened this email, and may reveal your IP. Load them anyway?"))
+        { STATE.loadImages=true; renderHtmlBody(); }
+    };
+    c.appendChild(b);
+  }
+}
+
+function renderLeft(analysis){
+  const L = $("#left");
+  const a = analysis;
+  const verdictIco = a.level==="bad" ? "⛔" : a.level==="warn" ? "⚠️" : "✅";
+  let html = "";
+
+  html += "<div class='verdict "+a.level+"'><div class='title'>"+verdictIco+" "+escapeHtml(a.title)+"</div></div>";
+
+  // headers
+  const from = a.from, replyTo = a.replyTo;
+  const subject = decodeRFC2047(getHeader(STATE.headers,"subject"));
+  const to = decodeRFC2047(getHeader(STATE.headers,"to"));
+  const date = getHeader(STATE.headers,"date");
+  html += "<div class='section'><h2>Message</h2><div class='kv'>";
+  html += "<div class='k'>From</div><div class='v'>"+(from.name?escapeHtml(from.name)+" ":"")+"<span class='mono'>&lt;"+escapeHtml(from.addr)+"&gt;</span></div>";
+  if (replyTo.addr) html += "<div class='k'>Reply-To</div><div class='v mono'>"+escapeHtml(replyTo.addr)+"</div>";
+  html += "<div class='k'>To</div><div class='v mono'>"+escapeHtml(to)+"</div>";
+  html += "<div class='k'>Subject</div><div class='v'>"+escapeHtml(subject)+"</div>";
+  html += "<div class='k'>Date</div><div class='v'>"+escapeHtml(date)+"</div>";
+  html += "</div></div>";
+
+  // auth pills
+  const pill = (n,v) => {
+    if (v===null) return "<span class='pill warn'>"+n+": n/a</span> ";
+    const cls = v==="pass"?"good":"bad";
+    return "<span class='pill "+cls+"'>"+n+": "+escapeHtml(v)+"</span> ";
+  };
+  html += "<div class='section'><h2>Authentication</h2><div>"+pill("SPF",a.spf)+pill("DKIM",a.dkim)+pill("DMARC",a.dmarc)+"</div></div>";
+
+  // flags
+  html += "<div class='section'><h2>Findings ("+a.flags.length+")</h2>";
+  if (!a.flags.length) html += "<div class='empty'>Nothing notable.</div>";
+  a.flags.forEach(f => {
+    const ico = f.level==="bad"?"<span class='dot bad'></span>":f.level==="warn"?"<span class='dot warn'></span>":"<span class='dot good'></span>";
+    html += "<div class='flag'><div class='ico'>"+ico+"</div><div class='body'><div class='what'>"+escapeHtml(f.what)+"</div><div class='why'>"+f.why+"</div></div></div>";
+  });
+  html += "</div>";
+
+  // attachments
+  html += "<div class='section'><h2>Attachments ("+STATE.attachments.length+")</h2>";
+  if (!STATE.attachments.length) html += "<div class='empty'>None.</div>";
+  STATE.attachments.forEach((att,i) => {
+    const danger = DANGEROUS_EXT.test(att.filename);
+    html += "<div class='att'>";
+    html += "<div class='name'>"+(danger?"⚠️ ":"📎 ")+escapeHtml(att.filename)+
+            (danger?"<div class='why' style='color:var(--bad);font-size:11px'>Potentially dangerous file type — do not open unless you trust the sender.</div>":"")+
+            "<div class='why' style='color:var(--muted);font-size:11px'>"+escapeHtml(att.type)+"</div></div>";
+    html += "<div class='size'>"+formatSize(att.size)+"</div>";
+    html += "<button class='copybtn' data-att='"+i+"'>Save</button>";
+    html += "</div>";
+  });
+  html += "</div>";
+
+  L.innerHTML = html;
+  L.querySelectorAll("button[data-att]").forEach(b => b.onclick = () => saveAttachment(+b.dataset.att));
+}
+
+function renderLinks(){
+  const v = $("#view-links");
+  if (!STATE.links.length){ v.innerHTML = "<div class='empty'>No links found in this message.</div>"; return; }
+  let html = "<div class='banner'><span>⚠️ Links are shown for inspection only and are <strong>not clickable</strong>. Hover/read the real destination before deciding to visit it elsewhere.</span></div><div style='height:12px'></div>";
+  STATE.links.forEach(l => {
+    const host = hostOf(l.unwrapped);
+    html += "<div class='linkrow'>";
+    if (l.display) html += "<div class='disp'>shown as: "+escapeHtml(l.display)+"</div>";
+    html += "<div class='url mono'>"+escapeHtml(l.unwrapped)+"</div>";
+    html += "<div class='meta'>";
+    if (host) html += "<span class='pill'>"+escapeHtml(host)+"</span>";
+    if (l.wasWrapped) html += "<span class='pill good'>unwrapped from gateway</span>";
+    html += "<button class='copybtn' data-copy=\""+encodeURIComponent(l.unwrapped)+"\">Copy URL</button>";
+    if (l.wasWrapped) html += "<button class='copybtn' data-copy=\""+encodeURIComponent(l.original)+"\">Copy original</button>";
+    html += "</div></div>";
+  });
+  v.innerHTML = html;
+  v.querySelectorAll("button[data-copy]").forEach(b => b.onclick = async () => {
+    try { await navigator.clipboard.writeText(decodeURIComponent(b.dataset.copy)); b.textContent="Copied!"; setTimeout(()=>b.textContent= b.textContent==="Copied!"?"Copy URL":b.textContent,1200);} catch(e){}
+  });
+}
+
+function formatSize(n){
+  if (n<1024) return n+" B";
+  if (n<1024*1024) return (n/1024).toFixed(1)+" KB";
+  return (n/1024/1024).toFixed(1)+" MB";
+}
+
+function saveAttachment(i){
+  const att = STATE.attachments[i];
+  if (DANGEROUS_EXT.test(att.filename) &&
+      !confirm("“"+att.filename+"” is a potentially dangerous file type. Saving is safe, but do NOT open it unless you fully trust the source. Continue saving?")) return;
+  const blob = new Blob([att.bytes], { type: "application/octet-stream" }); // force download, never inline-execute
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = att.filename || "attachment";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+}
+
+/* ---------- load flow ---------- */
+
+function loadEml(raw){
+  const root = parseEntity(raw);
+  const parts = collectParts(root, null);
+  STATE.headers = root.headers;
+  STATE.html = parts.html;
+  STATE.text = parts.text;
+  STATE.attachments = parts.attachments;
+  STATE.loadImages = false;
+  STATE.links = extractLinks(parts.html, parts.text);
+
+  const analysis = analyzeSecurity(STATE.headers, STATE.links);
+
+  $("#textBody").textContent = STATE.text || "(no plain-text part)";
+  $("#rawBody").textContent = raw;
+  renderHtmlBody();
+  renderLinks();
+  renderLeft(analysis);
+
+  $("#drop").style.display="none";
+  $("#main").classList.add("show");
+  $("#closeBtn").style.display="";
+}
+
+function readFile(file){
+  const reader = new FileReader();
+  reader.onload = e => {
+    // read as binary string to preserve bytes for base64/charset handling
+    loadEml(e.target.result);
+  };
+  reader.readAsBinaryString(file);
+}
+
+/* ---------- wiring ---------- */
+
+$("#file").addEventListener("change", e => { if (e.target.files[0]) readFile(e.target.files[0]); });
+$("#closeBtn").addEventListener("click", () => {
+  STATE = { html:null,text:null,attachments:[],headers:[],links:[],loadImages:false };
+  $("#main").classList.remove("show");
+  $("#drop").style.display="";
+  $("#closeBtn").style.display="none";
+  $("#file").value="";
+});
+
+const drop = $("#drop");
+["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e=>{e.preventDefault(); drop.classList.add("drag");}));
+["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e=>{e.preventDefault(); drop.classList.remove("drag");}));
+drop.addEventListener("drop", e => { const f=e.dataTransfer.files[0]; if (f) readFile(f); });
+// allow dropping anywhere once a message is open too
+window.addEventListener("dragover", e=>e.preventDefault());
+window.addEventListener("drop", e=>{ e.preventDefault(); if (e.dataTransfer.files[0] && !$("#main").classList.contains("show")) readFile(e.dataTransfer.files[0]); });
+
+document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
+  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+  document.querySelectorAll(".view").forEach(x=>x.classList.remove("active"));
+  t.classList.add("active");
+  $("#view-"+t.dataset.view).classList.add("active");
+}));
+</script>
+</body>
+</html>
