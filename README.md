@@ -92,7 +92,6 @@ lib/
   pdf.js          Vendored Mozilla pdf.js 3.11.174 (UMD)
   pdf.worker.js   Vendored pdf.js worker (used as main-thread fallback on file://)
 README.md         This file
-.claude/launch.json   Optional dev-server config (python http.server)
 ```
 
 ### Sample / test files (safe to delete)
