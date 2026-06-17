@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Safe PDF Viewer / Extractor</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --border:#2a2f3a;
+    --text:#e6e9ef; --muted:#9aa3b2; --accent:#4e7df7; --good:#39c46b;
+    --warn:#f0a92c; --bad:#ef5b5b; --chip:#252a35;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg); color:var(--text);
+    font:14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    display:flex; flex-direction:column;}
+  header{padding:12px 18px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; gap:16px; flex-wrap:wrap; background:var(--panel);}
+  header h1{font-size:16px; margin:0; font-weight:600}
+  header .sub{color:var(--muted); font-size:12px}
+  .grow{flex:1}
+  button, label.btn{background:var(--panel2); color:var(--text); border:1px solid var(--border);
+    padding:7px 12px; border-radius:8px; cursor:pointer; font-size:13px;}
+  button:hover, label.btn:hover{border-color:var(--accent)}
+  button:disabled{opacity:.5; cursor:not-allowed}
+  button.primary{background:var(--accent); border-color:var(--accent); color:#fff}
+  input[type=file]{display:none}
+  a.nav{color:var(--accent); text-decoration:none; font-size:12px}
+
+  #drop{flex:1; margin:24px; border:2px dashed var(--border); border-radius:14px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    color:var(--muted); text-align:center; gap:10px; padding:40px;}
+  #drop.drag{border-color:var(--accent); background:var(--panel)}
+  #drop strong{color:var(--text); font-size:18px}
+
+  main{flex:1; display:none; overflow:hidden}
+  main.show{display:flex}
+  .left{width:360px; min-width:320px; border-right:1px solid var(--border);
+    overflow:auto; padding:14px; background:var(--panel);}
+  .right{flex:1; display:flex; flex-direction:column; overflow:hidden}
+  .toolbar{padding:8px 14px; border-bottom:1px solid var(--border);
+    display:flex; gap:8px; align-items:center; flex-wrap:wrap; background:var(--panel2);}
+  .tabs{display:flex; gap:4px}
+  .tab{padding:6px 12px; border-radius:8px 8px 0 0; cursor:pointer; color:var(--muted)}
+  .tab.active{background:var(--bg); color:var(--text); border:1px solid var(--border); border-bottom:none}
+  .view{flex:1; overflow:auto; display:none}
+  .view.active{display:block}
+
+  #pages{padding:18px; display:flex; flex-direction:column; align-items:center; gap:18px; background:#0b0d11}
+  #pages canvas{background:#fff; box-shadow:0 2px 14px rgba(0,0,0,.5); max-width:100%; height:auto}
+  .pagewrap{display:flex; flex-direction:column; align-items:center; gap:6px}
+  .pagenum{color:var(--muted); font-size:11px}
+
+  .section{margin-bottom:18px}
+  .section h2{font-size:11px; text-transform:uppercase; letter-spacing:.08em;
+    color:var(--muted); margin:0 0 8px; font-weight:600;}
+  .kv{display:grid; grid-template-columns:96px 1fr; gap:4px 8px; font-size:12.5px}
+  .kv .k{color:var(--muted)}
+  .kv .v{word-break:break-word}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+
+  .verdict{border-radius:10px; padding:12px; margin-bottom:14px; border:1px solid var(--border)}
+  .verdict.bad{background:rgba(239,91,91,.12); border-color:var(--bad)}
+  .verdict.warn{background:rgba(240,169,44,.12); border-color:var(--warn)}
+  .verdict.good{background:rgba(57,196,107,.12); border-color:var(--good)}
+  .verdict .title{font-weight:700; font-size:14px}
+
+  .flag{display:flex; gap:9px; padding:8px 0; border-top:1px solid var(--border); font-size:12.5px}
+  .flag:first-of-type{border-top:none}
+  .flag .ico{flex:none; width:18px; text-align:center}
+  .flag .body{flex:1}
+  .flag .body .what{font-weight:600}
+  .flag .body .why{color:var(--muted); margin-top:2px}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;vertical-align:middle}
+  .dot.good{background:var(--good)} .dot.warn{background:var(--warn)} .dot.bad{background:var(--bad)}
+
+  .pill{display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; background:var(--chip); border:1px solid var(--border); margin:2px 2px 0 0}
+  .pill.good{color:var(--good); border-color:var(--good)}
+  .pill.bad{color:var(--bad); border-color:var(--bad)}
+  .pill.warn{color:var(--warn); border-color:var(--warn)}
+
+  .linkrow{padding:9px 0; border-top:1px solid var(--border)}
+  .linkrow:first-child{border-top:none}
+  .linkrow .disp{color:var(--muted); font-size:11px; margin-bottom:2px}
+  .linkrow .url{font-size:12px; word-break:break-all}
+  .linkrow .meta{margin-top:4px; display:flex; gap:6px; align-items:center; flex-wrap:wrap}
+  .copybtn{font-size:11px; padding:3px 8px}
+
+  .att{display:flex; align-items:center; gap:10px; padding:9px 0; border-top:1px solid var(--border)}
+  .att:first-child{border-top:none}
+  .att .name{flex:1; word-break:break-all}
+  .att .size{color:var(--muted); font-size:12px}
+
+  pre.raw{white-space:pre-wrap; word-break:break-word; padding:14px; margin:0; font-size:12px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .js-block{background:#1a1010; border:1px solid var(--bad); border-radius:8px; margin:12px 14px; padding:0}
+  .js-block .hd{background:rgba(239,91,91,.15); padding:6px 12px; font-size:12px; color:var(--bad); border-bottom:1px solid var(--bad)}
+  .js-block pre{white-space:pre-wrap; word-break:break-word; padding:12px; margin:0; font-size:12px; font-family:ui-monospace,monospace}
+  .empty{padding:30px; color:var(--muted); text-align:center}
+  .banner{background:var(--panel2); border:1px solid var(--warn); color:var(--text); padding:8px 12px; border-radius:8px; font-size:12.5px; display:flex; gap:10px; align-items:center}
+  #status{color:var(--muted); font-size:12px}
+  code{background:var(--chip); padding:1px 5px; border-radius:5px; font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🛡️ Safe PDF Viewer / Extractor</h1>
+  <span class="sub">Renders locally · PDF JavaScript never runs · links &amp; files inert</span>
+  <a class="nav" href="index.html">← EML viewer</a>
+  <span class="grow"></span>
+  <label class="btn">Open .pdf… <input id="file" type="file" accept=".pdf,application/pdf"></label>
+  <button id="closeBtn" style="display:none">Close</button>
+</header>
+
+<div id="drop">
+  <strong>Drop a .pdf file here</strong>
+  <div>Parsed and rendered entirely in your browser. No upload, no PDF scripts executed.</div>
+  <div id="serveNote" style="color:var(--warn);font-size:12px;display:none;margin-top:8px"></div>
+</div>
+
+<main id="main">
+  <aside class="left" id="left"></aside>
+  <section class="right">
+    <div class="toolbar">
+      <div class="tabs">
+        <div class="tab active" data-view="pages">Pages</div>
+        <div class="tab" data-view="text">Text</div>
+        <div class="tab" data-view="links">Links</div>
+        <div class="tab" data-view="js">JavaScript</div>
+        <div class="tab" data-view="struct">Structure</div>
+      </div>
+      <span class="grow"></span>
+      <span id="status"></span>
+    </div>
+    <div class="view active" id="view-pages"><div id="pages"></div></div>
+    <div class="view" id="view-text"><pre class="raw" id="textBody"></pre></div>
+    <div class="view" id="view-links" style="padding:14px"></div>
+    <div class="view" id="view-js"></div>
+    <div class="view" id="view-struct"><pre class="raw" id="structBody"></pre></div>
+  </section>
+</main>
+
+<!-- Classic (non-module) builds so the page works from a plain file:// double-click.
+     pdf.worker.js defines window.pdfjsWorker, which pdf.js uses as a main-thread
+     fallback when a real Worker can't be spawned (the case on file://). -->
+<script src="lib/pdf.js"></script>
+<script src="lib/pdf.worker.js"></script>
+<script>
+"use strict";
+const pdfjsLib = window.pdfjsLib;
+// On http(s) this uses the real Worker; on file:// the Worker spawn fails and
+// pdf.js falls back to the already-loaded pdfjsWorker on the main thread.
+pdfjsLib.GlobalWorkerOptions.workerSrc = "lib/pdf.worker.js";
+
+const $ = s => document.querySelector(s);
+const escapeHtml = s => (s==null?"":String(s)).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+
+/* ---------- URL unwrapping (Proofpoint urldefense + Outlook SafeLinks) ---------- */
+function unwrapUrl(url){
+  let changed=true, guard=0, original=url;
+  while (changed && guard++ < 5){
+    changed=false;
+    let m = url.match(/^https?:\/\/[^/]*safelinks\.protection\.outlook\.com\/.*?[?&]url=([^&]+)/i);
+    if (m){ try{ url=decodeURIComponent(m[1]); changed=true; continue; }catch(e){} }
+    m = url.match(/^https?:\/\/urldefense\.com\/v3\/__(.*?)__;/i);
+    if (m){ let r=m[1].replace(/\*([0-9A-Fa-f]{2})/g,(x,h)=>{try{return decodeURIComponent("%"+h);}catch(e){return x;}}); url=r; changed=true; continue; }
+    m = url.match(/^https?:\/\/urldefense\.proofpoint\.com\/v2\/url\?u=([^&]+)/i);
+    if (m){ let r=m[1].replace(/-/g,"%").replace(/_/g,"/"); try{ url=decodeURIComponent(r); changed=true; continue; }catch(e){} }
+  }
+  return { original, unwrapped:url, wasWrapped:url!==original };
+}
+const hostOf = u => { try{ return new URL(u).hostname.toLowerCase(); }catch(e){ return ""; } };
+const regDomain = h => { const p=(h||"").split("."); return p.length<=2?h:p.slice(-2).join("."); };
+
+/* ---------- dangerous file extensions ---------- */
+const DANGEROUS_EXT = /\.(exe|scr|com|pif|bat|cmd|js|jse|vbs|vbe|wsf|wsh|hta|msi|msp|cpl|jar|ps1|psm1|reg|lnk|chm|iso|img|vhd|docm|dotm|xlsm|xltm|pptm|ppam|html?|svg|zip|rar|7z|gz|ace|cab)$/i;
+
+/* ---------- static structural scan (pdfid-style, with hex-name normalization) ---------- */
+const KEYWORDS = [
+  {tok:"/JavaScript", level:"bad",  why:"The PDF contains embedded JavaScript. Legitimate documents rarely need it; it's a common malware vector."},
+  {tok:"/JS",         level:"bad",  why:"JavaScript code is present (often paired with an auto-run action)."},
+  {tok:"/Launch",     level:"bad",  why:"A Launch action can start external programs or open other files on your machine."},
+  {tok:"/SubmitForm", level:"bad",  why:"The document can submit form data to a remote server — potential credential/data exfiltration."},
+  {tok:"/OpenAction", level:"warn", why:"An action runs automatically when the document is opened. Benign for 'go to page', dangerous when it triggers JavaScript or Launch."},
+  {tok:"/AA",         level:"warn", why:"Additional Actions fire automatically on events (open, close, page change, field focus)."},
+  {tok:"/EmbeddedFile",level:"warn",why:"One or more files are embedded inside this PDF. They could be malicious payloads."},
+  {tok:"/RichMedia",  level:"warn", why:"Embedded rich media (Flash/video) — a historic exploit vector."},
+  {tok:"/XFA",        level:"warn", why:"XFA forms greatly expand the attack surface and can carry script."},
+  {tok:"/GoToR",      level:"warn", why:"A remote go-to action references another file or URL."},
+  {tok:"/GoToE",      level:"warn", why:"An embedded go-to action references a file embedded in the PDF."},
+  {tok:"/JBIG2Decode",level:"warn", why:"JBIG2 image decoding has a history of parser exploits."},
+  {tok:"/AcroForm",   level:"info", why:"The PDF contains an interactive form."},
+  {tok:"/URI",        level:"info", why:"The PDF contains links to external URLs (see the Links tab)."},
+  {tok:"/ObjStm",     level:"info", why:"Object streams are used — they can hide objects from naive scanners (we still scan them via pdf.js where possible)."},
+  {tok:"/Encrypt",    level:"info", why:"The document is encrypted (may just be permission flags, not a password)."},
+];
+
+function bytesToLatin1(bytes){
+  let s=""; const CH=0x8000;
+  for (let i=0;i<bytes.length;i+=CH) s += String.fromCharCode.apply(null, bytes.subarray(i, i+CH));
+  return s;
+}
+function normalizeHexNames(s){
+  // PDF names may hex-escape chars: /J#61vaScript -> /JavaScript
+  return s.replace(/#([0-9A-Fa-f]{2})/g, (m,h)=>String.fromCharCode(parseInt(h,16)));
+}
+function structuralScan(rawStr){
+  const s = normalizeHexNames(rawStr);
+  const counts = {};
+  for (const k of KEYWORDS){
+    // Match the keyword as a COMPLETE PDF name token: a "/" + name, ending at a
+    // non-name character. Without the trailing boundary, "/AA" wrongly matches
+    // inside font subset names like "/AAAAAA+ArialMT".
+    const re = new RegExp(k.tok.replace(/[.*+?^${}()|[\]\\]/g,"\\$&") + "(?![A-Za-z0-9])", "g");
+    const n = (s.match(re)||[]).length;
+    if (n>0) counts[k.tok] = n;
+  }
+  return counts;
+}
+
+// Hosts commonly abused to host phishing/malware for free or to tunnel traffic.
+// A link landing on one of these deserves scrutiny even with no malware structures.
+const RISKY_HOST_SUFFIXES = ["workers.dev","pages.dev","web.app","firebaseapp.com","herokuapp.com","glitch.me","repl.co","replit.app","vercel.app","netlify.app","r2.dev","trycloudflare.com","ngrok.io","ngrok-free.app","blob.core.windows.net","azurewebsites.net","onrender.com","fly.dev","github.io","gitbook.io","weebly.com","wixsite.com","000webhostapp.com","duckdns.org","sharepoint.com"];
+function hostRisk(host){
+  host = (host||"").toLowerCase();
+  if (!host) return null;
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return "raw IP address";
+  if (host.startsWith("xn--") || host.includes(".xn--")) return "punycode (possible look-alike) domain";
+  for (const suf of RISKY_HOST_SUFFIXES) if (host === suf || host.endsWith("."+suf)) return "free/abused hosting service ("+suf+")";
+  return null;
+}
+
+/* ---------- state ---------- */
+let STATE = {};
+let renderTasks = [];
+
+function reset(){
+  renderTasks.forEach(t=>{ try{t.cancel();}catch(e){} });
+  renderTasks=[];
+  STATE = { pdf:null, raw:null, text:"", links:[], js:[], attachments:[], meta:null, counts:{}, numPages:0 };
+}
+
+/* ---------- load ---------- */
+async function loadPdf(arrayBuffer){
+  reset();
+  $("#status").textContent = "Parsing…";
+  // Keep a private copy of the bytes for static scanning (pdf.js detaches its buffer).
+  STATE.raw = new Uint8Array(arrayBuffer.slice(0));
+  STATE.counts = structuralScan(bytesToLatin1(STATE.raw));
+
+  const task = pdfjsLib.getDocument({
+    data: new Uint8Array(arrayBuffer.slice(0)),
+    isEvalSupported: false,        // never eval; defuses some pdf.js fast-paths that rely on Function()
+    disableAutoFetch: true,
+    disableStream: false,
+    stopAtErrors: false,
+    enableXfa: false,              // do not build the XFA layer
+  });
+  let pdf;
+  try { pdf = await task.promise; }
+  catch(e){
+    if (e && e.name === "PasswordException"){
+      $("#status").textContent = "";
+      $("#left").innerHTML = "<div class='verdict warn'><div class='title'>🔒 Password-protected PDF</div></div><div class='empty'>This document is encrypted and needs a password to open. Encrypted-then-mailed PDFs are a common way to slip malware past scanners — open it only if you were expecting it.</div>";
+      showMain(); return;
+    }
+    throw e;
+  }
+  STATE.pdf = pdf;
+  STATE.numPages = pdf.numPages;
+
+  // metadata
+  try { STATE.meta = await pdf.getMetadata(); } catch(e){ STATE.meta = null; }
+
+  // document-level JavaScript / auto actions
+  try {
+    const acts = await pdf.getJSActions();
+    if (acts) for (const [name, arr] of Object.entries(acts))
+      (arr||[]).forEach(code => STATE.js.push({ where:"Document "+name, code:String(code) }));
+  } catch(e){}
+
+  // embedded files
+  try {
+    const at = await pdf.getAttachments();
+    if (at) for (const key of Object.keys(at)){
+      const a = at[key];
+      const bytes = a.content instanceof Uint8Array ? a.content : new Uint8Array(a.content||[]);
+      STATE.attachments.push({ filename: a.filename || key, size: bytes.length, bytes });
+    }
+  } catch(e){}
+
+  // per-page: text, link annotations, page JS
+  const seen = new Set();
+  const addLink = (url, disp) => {
+    url=(url||"").trim();
+    if (!/^https?:\/\//i.test(url) && !/^mailto:/i.test(url)) return;
+    const u = unwrapUrl(url); const key=u.unwrapped+"|"+(disp||"");
+    if (seen.has(key)) return; seen.add(key);
+    STATE.links.push({ display:disp||"", ...u });
+  };
+  let allText = [];
+  for (let p=1; p<=STATE.numPages; p++){
+    const page = await pdf.getPage(p);
+    try {
+      const tc = await page.getTextContent();
+      let line = tc.items.map(it=>it.str).join("");
+      allText.push("──── Page "+p+" ────\n"+line);
+      (line.match(/https?:\/\/[^\s<>")\]]+/gi)||[]).forEach(u=>addLink(u,""));
+    } catch(e){}
+    try {
+      const annots = await page.getAnnotations();
+      for (const an of annots){
+        if (an.url) addLink(an.url, "[link annotation p."+p+"]");
+        else if (an.unsafeUrl) addLink(an.unsafeUrl, "[link annotation p."+p+"]");
+        if (an.actions) for (const [ev, codes] of Object.entries(an.actions))
+          (codes||[]).forEach(c => STATE.js.push({ where:"Page "+p+" annotation "+ev, code:String(c) }));
+      }
+    } catch(e){}
+    try {
+      const pacts = await page.getJSActions();
+      if (pacts) for (const [name, arr] of Object.entries(pacts))
+        (arr||[]).forEach(c => STATE.js.push({ where:"Page "+p+" "+name, code:String(c) }));
+    } catch(e){}
+    page.cleanup();
+  }
+  STATE.text = allText.join("\n\n");
+
+  $("#status").textContent = STATE.numPages + " page(s)";
+  render();
+  showMain();
+  renderPages(); // async, fills canvases
+}
+
+/* ---------- threat analysis ---------- */
+function analyze(){
+  const flags = [];
+  const c = STATE.counts;
+  // structural keyword flags
+  for (const k of KEYWORDS){
+    if (c[k.tok]) flags.push({ level:k.level, what:k.tok.slice(1)+" ×"+c[k.tok], why:k.why });
+  }
+  // extracted JS confirms execution risk
+  if (STATE.js.length) flags.push({ level:"bad", what:STATE.js.length+" JavaScript action(s) extracted", why:"Actual script was recovered from the document (shown inert in the JavaScript tab)." });
+  // auto-run + JS combo
+  if (c["/OpenAction"] && (c["/JavaScript"]||c["/JS"]||STATE.js.length))
+    flags.push({ level:"bad", what:"Auto-running JavaScript", why:"An OpenAction is combined with JavaScript — code is set to run the moment the file opens. Strong malware indicator." });
+  // embedded files with dangerous names
+  STATE.attachments.forEach(a => {
+    if (DANGEROUS_EXT.test(a.filename))
+      flags.push({ level:"bad", what:"Dangerous embedded file: "+a.filename, why:"An embedded file has an executable/script extension. Do not extract-and-open." });
+  });
+  // link destination analysis (a link-only phish has no malware structures at all)
+  const webLinks = STATE.links.filter(l => /^https?:\/\//i.test(l.unwrapped));
+  const risky = [];
+  webLinks.forEach(l => { const r = hostRisk(hostOf(l.unwrapped)); if (r) risky.push({ host:hostOf(l.unwrapped), reason:r }); });
+  risky.forEach(r => flags.push({ level:"bad", what:"Suspicious link host: "+r.host, why:"This link lands on a "+r.reason+". Legitimate companies rarely deliver documents/downloads from these. Strong phishing indicator." }));
+  if (webLinks.length && !risky.length)
+    flags.push({ level:"warn", what:webLinks.length+" external link(s) — verify destinations", why:"The document links out to the web. A PDF's only job is often to get you to click. Check each destination in the Links tab before visiting." });
+  if (STATE.links.some(l=>l.wasWrapped)) flags.push({ level:"good", what:"Some links were gateway-rewritten", why:"A mail security gateway wrapped link(s); real destinations are shown unwrapped in the Links tab." });
+
+  let level="good", title="No obvious malicious structures detected";
+  if (flags.some(f=>f.level==="bad")){ level="bad"; title="Dangerous content — handle with extreme care"; }
+  else if (flags.some(f=>f.level==="warn")){ level="warn"; title="Some risky features present — treat with caution"; }
+  // keep info-only as good-ish
+  return { level, title, flags };
+}
+
+/* ---------- render left panel ---------- */
+function render(){
+  const a = analyze();
+  const info = (STATE.meta && STATE.meta.info) || {};
+  const ico = a.level==="bad"?"⛔":a.level==="warn"?"⚠️":"✅";
+  let html = "<div class='verdict "+a.level+"'><div class='title'>"+ico+" "+escapeHtml(a.title)+"</div></div>";
+
+  html += "<div class='section'><h2>Document</h2><div class='kv'>";
+  html += "<div class='k'>Title</div><div class='v'>"+escapeHtml(info.Title||"—")+"</div>";
+  html += "<div class='k'>Author</div><div class='v'>"+escapeHtml(info.Author||"—")+"</div>";
+  html += "<div class='k'>Producer</div><div class='v'>"+escapeHtml(info.Producer||"—")+"</div>";
+  html += "<div class='k'>Creator</div><div class='v'>"+escapeHtml(info.Creator||"—")+"</div>";
+  html += "<div class='k'>Created</div><div class='v'>"+escapeHtml(info.CreationDate||"—")+"</div>";
+  html += "<div class='k'>Modified</div><div class='v'>"+escapeHtml(info.ModDate||"—")+"</div>";
+  html += "<div class='k'>PDF version</div><div class='v'>"+escapeHtml(info.PDFFormatVersion||"—")+"</div>";
+  html += "<div class='k'>Pages</div><div class='v'>"+STATE.numPages+"</div>";
+  html += "<div class='k'>Size</div><div class='v'>"+formatSize(STATE.raw.length)+"</div>";
+  html += "</div></div>";
+
+  // structure pills
+  const c = STATE.counts;
+  let pills = "";
+  for (const k of KEYWORDS) if (c[k.tok]){
+    const cls = k.level==="bad"?"bad":k.level==="warn"?"warn":"";
+    pills += "<span class='pill "+cls+"'>"+escapeHtml(k.tok.slice(1))+" ×"+c[k.tok]+"</span>";
+  }
+  html += "<div class='section'><h2>Structure</h2><div>"+(pills||"<span class='pill good'>clean</span>")+"</div></div>";
+
+  html += "<div class='section'><h2>Findings ("+a.flags.length+")</h2>";
+  if (!a.flags.length) html += "<div class='empty'>Nothing notable.</div>";
+  a.flags.forEach(f=>{
+    const d = f.level==="bad"?"bad":f.level==="warn"?"warn":"good";
+    html += "<div class='flag'><div class='ico'><span class='dot "+d+"'></span></div><div class='body'><div class='what'>"+escapeHtml(f.what)+"</div><div class='why'>"+escapeHtml(f.why)+"</div></div></div>";
+  });
+  html += "</div>";
+
+  html += "<div class='section'><h2>Embedded files ("+STATE.attachments.length+")</h2>";
+  if (!STATE.attachments.length) html += "<div class='empty'>None.</div>";
+  STATE.attachments.forEach((att,i)=>{
+    const danger = DANGEROUS_EXT.test(att.filename);
+    html += "<div class='att'><div class='name'>"+(danger?"⚠️ ":"📎 ")+escapeHtml(att.filename)+
+      (danger?"<div class='why' style='color:var(--bad);font-size:11px'>Dangerous file type — do not open.</div>":"")+
+      "</div><div class='size'>"+formatSize(att.size)+"</div><button class='copybtn' data-att='"+i+"'>Save</button></div>";
+  });
+  html += "</div>";
+
+  $("#left").innerHTML = html;
+  $("#left").querySelectorAll("button[data-att]").forEach(b=>b.onclick=()=>saveAttachment(+b.dataset.att));
+
+  // text + struct + links + js tabs
+  $("#textBody").textContent = STATE.text || "(no extractable text — may be image-only/scanned)";
+  renderLinks(); renderJs(); renderStruct();
+}
+
+function renderLinks(){
+  const v = $("#view-links");
+  if (!STATE.links.length){ v.innerHTML="<div class='empty'>No links found.</div>"; return; }
+  let html="<div class='banner'><span>⚠️ Links are shown for inspection only and are <strong>not clickable</strong>. Verify a destination before visiting it elsewhere.</span></div><div style='height:12px'></div>";
+  STATE.links.forEach(l=>{
+    const host = hostOf(l.unwrapped);
+    html += "<div class='linkrow'>";
+    if (l.display) html += "<div class='disp'>"+escapeHtml(l.display)+"</div>";
+    html += "<div class='url mono'>"+escapeHtml(l.unwrapped)+"</div><div class='meta'>";
+    if (host) html += "<span class='pill'>"+escapeHtml(host)+"</span>";
+    if (l.wasWrapped) html += "<span class='pill good'>unwrapped</span>";
+    html += "<button class='copybtn' data-copy=\""+encodeURIComponent(l.unwrapped)+"\">Copy URL</button></div></div>";
+  });
+  v.innerHTML = html;
+  v.querySelectorAll("button[data-copy]").forEach(b=>b.onclick=async()=>{ try{ await navigator.clipboard.writeText(decodeURIComponent(b.dataset.copy)); const t=b.textContent;b.textContent="Copied!";setTimeout(()=>b.textContent=t,1200);}catch(e){} });
+}
+
+function renderJs(){
+  const v = $("#view-js");
+  if (!STATE.js.length){ v.innerHTML="<div class='empty'>No embedded JavaScript found.</div>"; return; }
+  let html="<div class='banner' style='margin:14px'><span>⚠️ The code below was extracted from the PDF and is displayed as <strong>inert text only</strong> — it has not run and cannot run here.</span></div>";
+  STATE.js.forEach(j=>{
+    html += "<div class='js-block'><div class='hd'>"+escapeHtml(j.where)+"</div><pre>"+escapeHtml(j.code)+"</pre></div>";
+  });
+  v.innerHTML = html;
+}
+
+function renderStruct(){
+  const c = STATE.counts;
+  const info = (STATE.meta && STATE.meta.info)||{};
+  let lines = ["PDF structural summary (pdfid-style keyword scan)\n"];
+  lines.push("Pages:        "+STATE.numPages);
+  lines.push("File size:    "+STATE.raw.length+" bytes");
+  lines.push("PDF version:  "+(info.PDFFormatVersion||"?"));
+  lines.push("Encrypted:    "+(STATE.counts["/Encrypt"]?"yes":"no"));
+  lines.push("");
+  lines.push("Keyword counts (auto-action / scripting / payload indicators):");
+  let any=false;
+  for (const k of KEYWORDS){ if (c[k.tok]){ any=true; lines.push("  "+k.tok.padEnd(16," ")+c[k.tok]); } }
+  if (!any) lines.push("  (none of the watched keywords were found)");
+  if (STATE.meta && STATE.meta.metadata){
+    try { lines.push("\nXMP metadata:\n"+STATE.meta.metadata.getRaw()); } catch(e){}
+  }
+  $("#structBody").textContent = lines.join("\n");
+}
+
+/* ---------- render pages to canvas ---------- */
+async function renderPages(){
+  const container = $("#pages");
+  container.innerHTML = "";
+  if (!STATE.pdf){ container.innerHTML="<div class='empty'>Nothing to display.</div>"; return; }
+  const MAX = 100;
+  const n = Math.min(STATE.numPages, MAX);
+  const targetW = Math.min(900, (container.clientWidth||900) - 40);
+  for (let p=1; p<=n; p++){
+    const page = await STATE.pdf.getPage(p);
+    const base = page.getViewport({ scale:1 });
+    const scale = Math.min(2, Math.max(0.5, targetW / base.width));
+    const vp = page.getViewport({ scale });
+    const wrap = document.createElement("div"); wrap.className="pagewrap";
+    const canvas = document.createElement("canvas");
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = Math.floor(vp.width*ratio); canvas.height = Math.floor(vp.height*ratio);
+    canvas.style.width = vp.width+"px"; canvas.style.height = vp.height+"px";
+    const ctx = canvas.getContext("2d"); ctx.scale(ratio, ratio);
+    const tag = document.createElement("div"); tag.className="pagenum"; tag.textContent="Page "+p+" / "+STATE.numPages;
+    wrap.appendChild(canvas); wrap.appendChild(tag); container.appendChild(wrap);
+    // NOTE: we render the page's graphics only — no annotation/forms layer, so links and
+    // widgets are visible as drawn but completely inert.
+    const t = page.render({ canvasContext: ctx, viewport: vp });
+    renderTasks.push(t);
+    try { await t.promise; } catch(e){}
+    page.cleanup();
+  }
+  if (STATE.numPages > MAX){
+    const more = document.createElement("div"); more.className="empty";
+    more.textContent = "Showing first "+MAX+" of "+STATE.numPages+" pages.";
+    container.appendChild(more);
+  }
+}
+
+/* ---------- attachments ---------- */
+function formatSize(n){ if(n<1024)return n+" B"; if(n<1048576)return (n/1024).toFixed(1)+" KB"; return (n/1048576).toFixed(1)+" MB"; }
+function saveAttachment(i){
+  const att = STATE.attachments[i];
+  if (DANGEROUS_EXT.test(att.filename) && !confirm("“"+att.filename+"” has a dangerous file type. Saving is safe but do NOT open it unless you fully trust the source. Continue?")) return;
+  const blob = new Blob([att.bytes], { type:"application/octet-stream" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href=url; a.download=att.filename||"file"; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+}
+
+/* ---------- ui plumbing ---------- */
+function showMain(){ $("#drop").style.display="none"; $("#main").classList.add("show"); $("#closeBtn").style.display=""; }
+function readFile(file){ const r=new FileReader(); r.onload=e=>loadPdf(e.target.result).catch(err=>{ $("#status").textContent=""; alert("Could not open PDF: "+err.message); }); r.readAsArrayBuffer(file); }
+
+$("#file").addEventListener("change", e=>{ if(e.target.files[0]) readFile(e.target.files[0]); });
+$("#closeBtn").addEventListener("click", ()=>{ reset(); $("#main").classList.remove("show"); $("#drop").style.display=""; $("#closeBtn").style.display="none"; $("#file").value=""; });
+
+const drop=$("#drop");
+["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("drag");}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("drag");}));
+drop.addEventListener("drop",e=>{e.preventDefault(); const f=e.dataTransfer.files[0]; if(f) readFile(f);});
+window.addEventListener("dragover",e=>e.preventDefault());
+window.addEventListener("drop",e=>{e.preventDefault(); if(e.dataTransfer.files[0] && !$("#main").classList.contains("show")) readFile(e.dataTransfer.files[0]);});
+
+document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>{
+  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+  document.querySelectorAll(".view").forEach(x=>x.classList.remove("active"));
+  t.classList.add("active"); $("#view-"+t.dataset.view).classList.add("active");
+}));
+
+</script>
+</body>
+</html>
